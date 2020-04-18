@@ -31,20 +31,27 @@ make_preds = function(model, data.test, threshold = 0.5, probs = FALSE, feature.
     return(factor(glm.preds)) #deixa de ser preciso o y.test
 }
 
-#Predict for the lda model
-lda_preds = function(model, x.test, probs = FALSE) {
+#Predict for the lda and qda models
+lda_preds = function(model, x.test, threshold = 0.5, probs = FALSE) {
     lda.pred = predict(model, x.test)
+    lda.probs = lda.pred$posterior[, 2] #probs of being 1 (positive)
     
     if(probs == TRUE) {
-        return(lda.pred$posterior[, 2]) #probs of being 1 (positive)
+        return(lda.probs)
     }
     
-    return(lda.pred$class)
+    if(threshold == 0.5) {
+        return(lda.pred$class)
+    } else {
+        return(factor(ifelse(lda.probs > threshold, 1, 0)))
+    }    
 }
 
 #Evaluate the various models passed as parameters, returns the metrics (Should be able to receive a function like "make_preds" for each type of model)
 #If feature.selection = TRUE, models.reduced contains the feature selection models
-evaluate_models = function(models.complete, models.reduced, predict_function = make_preds, feature.selection = FALSE, plot.width = 24, plot.height = 12, x.models = c("Complete", "Complete_step", "Reduced", "Reduced_step")) {
+evaluate_models = function(models.complete, models.reduced, predict_function = make_preds, best.thresholds = FALSE, tpr.threshold = 0.8, fpr.threshold = 0.3,
+                           feature.selection = FALSE, plot.width = 24, plot.height = 12, title = "Different metrics for each model", 
+                           x.models = c("Complete", "Complete_step", "Reduced", "Reduced_step")) {
     
     #train test spliting for both types of datasets
     ret = train_test_split(uci_heart, train_size = 0.7); train.complete = ret$train; test.complete = ret$test
@@ -53,16 +60,21 @@ evaluate_models = function(models.complete, models.reduced, predict_function = m
     }
     #It is the same for both datasets
     y_train = train.complete$target; y_test = test.complete$target
+    
+    #define thresholds
+    if(best.thresholds == FALSE) {
+        thresholds = c(0.5, 0.5, 0.5, 0.5)
+    } else {
+        thresholds = best_thresholds(models.complete, models.reduced, predict_function, test.complete, test.reduced, y_test, tpr.thresh = tpr.threshold, fpr.thresh = fpr.threshold)
+    }
 
     #Evaluate model and retrieve immportant metrics
-    recalls = c(); precisions = c(); f1scores = c(); specificities = c(); accs = c(); AUCs = c(); type = c()
-
-    i = 1
+    recalls = c(); precisions = c(); f1scores = c(); specificities = c(); accs = c(); AUCs = c(); type = c(); i = 1
     for(model in models.complete){
-        preds = predict_function(model, test.complete)
+        preds = predict_function(model, test.complete, threshold = thresholds[i])
         confm = caret::confusionMatrix(preds, y_test, positive = "1")
         recalls[i] = confm$byClass["Recall"]; precisions[i] = confm$byClass["Precision"]; f1scores[i] = confm$byClass["F1"]; specificities[i] = confm$byClass["Specificity"]; accs[i] = confm$overall["Accuracy"];
-        probs = predict_function(model, test.complete, probs = TRUE)
+        probs = predict_function(model, test.complete, threshold = thresholds[i], probs = TRUE)
         AUCs[i] = calc_AUC(probs, y_test)$auc
         type[i] = "Complete"
 
@@ -71,12 +83,12 @@ evaluate_models = function(models.complete, models.reduced, predict_function = m
 
     for(model in models.reduced) {
         if(feature.selection == TRUE) {
-            preds = predict_function(model, test.complete, feature.selection = TRUE)
-            probs = predict_function(model, test.complete, feature.selection = TRUE, probs = TRUE)
+            preds = predict_function(model, test.complete, threshold = thresholds[i], feature.selection = TRUE)
+            probs = predict_function(model, test.complete, threshold = thresholds[i], feature.selection = TRUE, probs = TRUE)
             type[i] = "Feature Selection"
         } else {
-            preds = predict_function(model, test.reduced)
-            probs = predict_function(model, test.reduced, probs = TRUE)
+            preds = predict_function(model, test.reduced, threshold = thresholds[i])
+            probs = predict_function(model, test.reduced, threshold = thresholds[i], probs = TRUE)
             type[i] = "Reduced"
         }
         
@@ -90,13 +102,19 @@ evaluate_models = function(models.complete, models.reduced, predict_function = m
     metrics = data.frame(Recall = recalls, Precision = precisions, F1 = f1scores, Specificity = specificities, Accuracy = accs, AUC = AUCs, Type = type, Models = x.models, row.names = NULL)
     
     #visualization
-    print(visualize_metrics(metrics, plot.width, plot.height))
+    #Uses thresholds?
+    if(thresholds[1] != 0.5) {
+        subtitle = make_subtitle(thresholds, x.models)
+        print(visualize_metrics(metrics, plot.width, plot.height, plot.title = title, plot.subtitle = subtitle))
+    } else {
+        print(visualize_metrics(metrics, plot.width, plot.height, plot.title = title))
+    }
     
     return(metrics)
 }
 
 #Method to Visualize all the metrics of a model, the metrics dataframe must have the structure [Metrics, Model Type, Model Name]
-visualize_metrics = function(metrics, plot.width = 24, plot.height = 12) {
+visualize_metrics = function(metrics, plot.width = 24, plot.height = 12, plot.title = "Different metrics for each model", plot.subtitle = "Threshold = 0.5") {
     options(repr.plot.width = plot.width, repr.plot.height = plot.height)
     #melt for facet wrap
     metrics.melt = melt(metrics, id.vars = c("Models", "Type"), value.name = "Count", variable.name = "Variable")
@@ -104,12 +122,21 @@ visualize_metrics = function(metrics, plot.width = 24, plot.height = 12) {
     p = ggplot(data = metrics.melt, aes(x = Models, y = Count)) + 
             geom_bar(aes(fill = Type), stat = "identity", width = 0.5, position = "dodge") + facet_wrap("Variable") +
             geom_text(aes(label = round(Count, 2)), position = position_dodge(width = 0.9), vjust = 1.25, size = 10) + 
-            scale_y_continuous(limits = c(0.65, 0.95), oob=rescale_none) + 
-            labs(title = "Different metrics for each model", y = "Metric Percentage") +
+            scale_y_continuous(limits = c(0.55, 0.95), oob=rescale_none) + 
+            labs(title = plot.title, subtitle = plot.subtitle, y = "Metric Percentage") +
             theme(text = element_text(size = 20), plot.title = element_text(size = 30, face = "bold", hjust = 0.5), panel.grid.minor = element_blank(), 
                   panel.grid.major = element_blank(), axis.text.x = element_text(angle = 45, vjust = 0.75))
     
     return(p)
+}
+
+#Make subtitle for the metrics plot, based on thresholds
+make_subtitle = function(thresh, x.models) {
+    s = ""
+    for(i in 1:length(thresh)) {
+        s = paste(s, x.models[i], "threshold =", thresh[i], "\n")
+    }
+    return(s)
 }
 
 #Plots the ROC Curve of all the models in the parameters "models.complete" and "models.reduced". 
@@ -159,6 +186,173 @@ roc_cutoff = function(predict_function = make_preds, model, x.test, y.test, tpr.
     cutoffs = cutoffs[order(cutoffs$tpr, decreasing = TRUE), ] #The best cutoff for the max tpr will be the first
     
     return(cutoffs[(cutoffs$tpr >= tpr.threshold) & (cutoffs$fpr <= fpr.threshold), ])
+}
+
+#This method computes the best thresholds for a set of models, that improve the recall the most.
+best_thresholds = function(models.complete, models.reduced, predict_function = make_preds, test.complete, test.reduced, y.test, tpr.thresh = 0.8, fpr.thresh = 0.3) {
+    thresh = c(); i = 1
+
+    for(model in models.complete) {
+        temp = roc_cutoff(predict_function, model, test.complete, y.test, tpr.threshold = tpr.thresh, fpr.threshold = fpr.thresh) #chose the acceptable fpr
+        thresh[i] = round(temp$cutoff[1], 2)
+        i = i + 1
+    }
+
+    for(model in models.red) {
+        temp = roc_cutoff(predict_function, model, test.reduced, y.test, tpr.threshold = tpr.thresh, fpr.threshold = fpr.thresh)
+        thresh[i] = round(temp$cutoff[1], 2)
+        i = i + 1
+    }
+    
+    return(thresh)
+}
+
+
+
+
+#FOR THE KNN MODELS-----------------------------------------------------------------------------------------------------
+
+#Evaluates KNN method according to the K parameter of the method. Returns the relevant metrics for the model
+evaluate_knn = function(ks = c(1,3,5,7,9,11,15), x.models = c("Complete model", "Reduced model")) {
+    #train test spliting for both types of datasets
+    ret = train_test_split(uci_heart, train_size = 0.7); train.complete = ret$train; test.complete = ret$test
+    ret = train_test_split(df.reduced, train_size = 0.7); train.reduced = ret$train ;test.reduced = ret$test
+    
+    #It is the same for both datasets
+    y_train = train.complete$target; y_test = test.complete$target
+    
+    #Evaluate model and retrieve immportant metrics
+    set.seed(1)
+    recalls = c(); precisions = c(); f1scores = c(); specificities = c(); accs = c(); i = 1
+    for(k in ks) {
+        knn.preds = knn(train.complete, test.complete, cl = y_train, k = k)
+        confm = caret::confusionMatrix(knn.preds, y_test, positive = "1")
+            
+        recalls[i] = confm$byClass["Recall"]; precisions[i] = confm$byClass["Precision"]; f1scores[i] = confm$byClass["F1"]; specificities[i] = confm$byClass["Specificity"]
+        accs[i] = confm$overall["Accuracy"]
+        i = i + 1
+    }
+    
+    metrics.complete = data.frame(Recall = recalls, Precision = precisions, F1 = f1scores, Specificity = specificities, Accuracy = accs, k = ks, row.names = NULL)
+    i = 1
+    for(k in ks) {
+        knn.preds = knn(train.reduced, test.reduced, cl = y_train, k = k)
+        confm = caret::confusionMatrix(knn.preds, y_test, positive = "1")
+            
+        recalls[i] = confm$byClass["Recall"]; precisions[i] = confm$byClass["Precision"]; f1scores[i] = confm$byClass["F1"]; specificities[i] = confm$byClass["Specificity"]
+        accs[i] = confm$overall["Accuracy"]
+        i = i + 1
+    }
+    
+    metrics.reduced = data.frame(Recall = recalls, Precision = precisions, F1 = f1scores, Specificity = specificities, Accuracy = accs, k = ks, row.names = NULL)
+    
+    #Visualization (arranged grid)
+    p1 = visualize_knn(metrics.complete, plot.title = x.models[1])
+    p2 = visualize_knn(metrics.reduced, plot.title = x.models[2])
+    
+    fig = ggarrange(p1, p2, nrow = 1, ncol = 2, common.legend = TRUE, legend = "right") #one common legend between the plots
+    grid = annotate_figure(fig,
+                        top = textGrob("Metric values for the KNN method", gp = gpar(fontsize = 40, fontface = "bold", col = "darkred"))) #add a title to the grid
+    print(grid)
+    
+    return(list("complete" = metrics.complete, "reduced" = metrics.reduced))
+}
+
+#Transforms the metrics dataset into plotable data. Plots the evolution of the metrics as the parameter K increases.
+visualize_knn = function(metrics, plot.title = "Metric values for KNN") {
+    #melt the dataset to use with ggplot
+    metrics.melt = melt(metrics, id.vars = c("k"), value.name = "Count", variable.name = "Variable")
+    
+    p = ggplot(data = metrics.melt, aes(x = k, y = Count)) + 
+            geom_line(aes(color = Variable), stat = "identity", size = 1) +
+            scale_x_discrete(limits = k, labels = k) +
+            scale_y_continuous(limits = c(0.3, 1)) +
+            scale_color_brewer(palette = "Set1", name = "Metrics") +
+            labs(title = plot.title, y = "Metric Percentage") +
+                    theme(text = element_text(size = 20), plot.title = element_text(size = 30, face = "bold", hjust = 0.5, color = "darkorange"), panel.grid.minor = element_blank(), 
+                          panel.grid.major = element_blank())
+    
+    return(p)
+}
+
+#Visualization
+visualize_best_k = function(metrics.list, best.ks = c(5,5), x.models = c("Complete", "Reduced")) {
+    metrics.complete = metrics.list$complete
+    metrics.reduced = metrics.list$reduced
+    
+    best.metrics.complete = metrics.complete[metrics.complete$k == best.ks[1], ]
+    best.metrics.reduced = metrics.reduced[metrics.reduced$k == best.ks[2], ]
+
+    best.metrics = rbind(best.metrics.complete, best.metrics.reduced)
+    best.metrics$Type = x.models
+    best.metrics$k = as.character(best.metrics$k) #Make it a discrete value
+
+    best.metrics.melt = melt(best.metrics, id.vars = c("k", "Type"), value.name = "Count", variable.name = "Variable")
+
+    p = ggplot(data = best.metrics.melt, aes(x = Type, y = Count)) +
+            geom_bar(aes(fill = k), stat = "identity", position = "dodge", width = 0.5) + facet_wrap("Variable") +
+            geom_text(aes(label = round(Count, 2)), position = position_dodge(width = 0.9), vjust = 1.25, size = 10) + 
+            scale_y_continuous(limits = c(0.55, 0.95), oob=rescale_none) + 
+            labs(title = "Best KNN metrics", y = "Metric Percentage") +
+            theme(text = element_text(size = 20), plot.title = element_text(size = 30, face = "bold", hjust = 0.5), panel.grid.minor = element_blank(), 
+                    panel.grid.major = element_blank())
+    
+    print(p)
+    
+    return(best.metrics.melt)
+}
+
+#Evaluating and plotting the train and test errors of the different models for the KNN method
+evaluate_knn_traintest_errors = function(k, x.models = c("Complete model", "Reduced model")) {
+    set.seed(1)
+    knn.complete.trainerr = c(); knn.reduced.trainerr = c(); knn.complete.testerr = c(); knn.reduced.testerr = c(); i = 1
+    for(param in k) {
+        preds = knn(train.complete, train.complete, cl = y_train, k = param)
+        knn.complete.trainerr[i] = 1 - mean(preds == y_train)
+
+        preds = knn(train.complete, test.complete, cl = y_train, k = param)
+        knn.complete.testerr[i] = 1 - mean(preds == y_test)
+
+        preds = knn(train.reduced, train.reduced, cl = y_train, k = param)
+        knn.reduced.trainerr[i] = 1 - mean(preds == y_train)
+
+        preds = knn(train.reduced, test.reduced, cl = y_train, k = param)
+        knn.reduced.testerr[i] = 1 - mean(preds == y_test)
+
+        i = i + 1
+    }
+
+    knn.complete.err = data.frame(cbind(knn.complete.trainerr, knn.complete.testerr))
+    knn.reduced.err = data.frame(cbind(knn.reduced.trainerr, knn.reduced.testerr))
+    
+    p1 = plot_knn_traintest_errors(knn.complete.err, k, x.models[1])
+    p2 = plot_knn_traintest_errors(knn.reduced.err, k, x.models[2])
+    
+    fig = ggarrange(p1, p2, nrow = 1, ncol = 2, common.legend = TRUE, legend = "right") #one common legend between the plots
+    grid = annotate_figure(fig,
+                        top = textGrob("Train vs Test errors for the KNN method", gp = gpar(fontsize = 40, fontface = "bold", col = "darkred"))) #add a title to the grid
+    print(grid)
+    
+    return(list("complete_err" = knn.complete.err, "reduced_err" = knn.reduced.err))
+}
+
+#Visualization of the train and test errors for the KNN method
+plot_knn_traintest_errors = function(model.errors, ks, plot.title) {
+    colnames(model.errors) = c("train error", "test error")
+    model.errors$k = ks
+    model.errors.melt = melt(model.errors, id.vars = "k", value.name = "Count", variable.name = "Variable")
+
+
+    p = ggplot(data = model.errors.melt, aes(x = k, y = Count)) + 
+            geom_line(aes(color = Variable), stat = "identity", size = 1) +
+                    scale_x_discrete(limits = k, labels = k) +
+                    scale_y_continuous(limits = c(0, 0.4)) +
+                    scale_color_brewer(palette = "Set1", name = "Train/Test errors") +
+                    labs(title = plot.title, y = "Error percentage") +
+                        theme(text = element_text(size = 20), plot.title = element_text(size = 30, face = "bold", hjust = 0.5, color = "darkorange"), panel.grid.minor = element_blank(), 
+                                  panel.grid.major = element_blank())
+    
+    return(p)
 }
 
 library(nbconvertR)
