@@ -355,6 +355,104 @@ plot_knn_traintest_errors = function(model.errors, ks, plot.title) {
     return(p)
 }
 
+
+#HIERARCHICAL CLUSTERING--------------------------------------------------------------------
+
+plot_dendograms = function(h1,h2,h3,h4,title) {
+#     windows(width=20, height=15)
+   
+    par(mfrow=c(2,2),oma=c(0,0,2,0))
+    plot(h1,main="Complete Linkage", cex =.6)
+    plot(h2,main="Single Linkage", cex =.6) 
+    plot(h3,main="Average Linkage", cex =.6)
+    plot(h4,main="Ward Linkage", cex =.6) 
+    mtext(title, outer = TRUE, cex = 1.5)
+}
+
+plot_metrics = function(data,metric,tick,title,metric_name){
+    
+    ggplot(data, aes(fill=dissimilarity_measure, y=metric, x=linkage_method)) + 
+    geom_bar(position="dodge", stat="identity")+
+    labs(y = metric_name) +
+    scale_y_continuous(breaks = round(seq(0, max(metric), by = tick),2))+
+    ggtitle(title)+
+    theme(plot.title = element_text(hjust = 0.5), text = element_text(size = 20))
+}
+calculate_metrics_table = function(){
+
+    c11 <- cutree(hclus11, k = 2)
+    c12 <- cutree(hclus12, k = 2)
+    c13 <- cutree(hclus13, k = 2)
+    c14 <- cutree(hclus14, k = 2)
+
+    c21 <- cutree(hclus21, k = 2)
+    c22 <- cutree(hclus22, k = 2)
+    c23 <- cutree(hclus23, k = 2)
+    c24 <- cutree(hclus24, k = 2)
+
+    c31 <- cutree(hclus31, k = 2)
+    c32 <- cutree(hclus32, k = 2)
+    c33 <- cutree(hclus33, k = 2)
+    c34 <- cutree(hclus34, k = 2)
+
+    c41 <- cutree(hclus41, k = 2)
+    c42 <- cutree(hclus42, k = 2)
+    c43 <- cutree(hclus43, k = 2)
+    c44 <- cutree(hclus44, k = 2)
+
+    c51 <- cutree(hclus51, k = 2)
+    c52 <- cutree(hclus52, k = 2)
+    c53 <- cutree(hclus53, k = 2)
+    c54 <- cutree(hclus54, k = 2)
+
+    agregation_coef <- c(coef(hclus11),coef(hclus12),coef(hclus13),coef(hclus14),
+                               coef(hclus21),coef(hclus22),coef(hclus23),coef(hclus24),
+                               coef(hclus31),coef(hclus32),coef(hclus33),coef(hclus34),
+                               coef(hclus41),coef(hclus42),coef(hclus43),coef(hclus44),
+                               coef(hclus51),coef(hclus52),coef(hclus53),coef(hclus54))
+    trgt = as.numeric(target)
+    rand_index <- c(adj.rand.index(c11,trgt),adj.rand.index(c12,trgt),adj.rand.index(c13,trgt),adj.rand.index(c14,trgt),
+                    adj.rand.index(c21,trgt),adj.rand.index(c22,trgt),adj.rand.index(c23,trgt),adj.rand.index(c24,trgt),
+                    adj.rand.index(c31,trgt),adj.rand.index(c32,trgt),adj.rand.index(c33,trgt),adj.rand.index(c34,trgt),
+                    adj.rand.index(c41,trgt),adj.rand.index(c42,trgt),adj.rand.index(c43,trgt),adj.rand.index(c44,trgt),
+                    adj.rand.index(c51,trgt),adj.rand.index(c52,trgt),adj.rand.index(c53,trgt),adj.rand.index(c54,trgt))
+
+    dissimilarity_measure <- c("pearson","pearson","pearson","pearson",
+                               "euclidean","euclidean","euclidean","euclidean",
+                               "spearman","spearman","spearman","spearman",
+                               "manhattan","manhattan","manhattan","manhattan",
+                               "cosine","cosine","cosine","cosine")
+
+    linkage_method <- c("complete","single","average","ward",
+                        "complete","single","average","ward",
+                        "complete","single","average","ward",
+                        "complete","single","average","ward",
+                        "complete","single","average","ward")
+
+    trgt_fac = as.factor(trgt)
+
+    precision <- c(caret::precision(trgt_fac,as.factor(c11)),caret::precision(trgt_fac,as.factor(c12)),caret::precision(trgt_fac,as.factor(c13)),caret::precision(trgt_fac,as.factor(c14)),
+                   caret::precision(trgt_fac,as.factor(c21)),caret::precision(trgt_fac,as.factor(c22)),caret::precision(trgt_fac,as.factor(c23)),caret::precision(trgt_fac,as.factor(c24)),
+                   caret::precision(trgt_fac,as.factor(c31)),caret::precision(trgt_fac,as.factor(c32)),caret::precision(trgt_fac,as.factor(c33)),caret::precision(trgt_fac,as.factor(c34)),
+                   caret::precision(trgt_fac,as.factor(c41)),caret::precision(trgt_fac,as.factor(c42)),caret::precision(trgt_fac,as.factor(c43)),caret::precision(trgt_fac,as.factor(c44)),
+                   caret::precision(trgt_fac,as.factor(c51)),caret::precision(trgt_fac,as.factor(c52)),caret::precision(trgt_fac,as.factor(c53)),caret::precision(trgt_fac,as.factor(c54)))
+
+    recall <- c(caret::recall(trgt_fac,as.factor(c11)),caret::recall(trgt_fac,as.factor(c12)),caret::recall(trgt_fac,as.factor(c13)),caret::recall(trgt_fac,as.factor(c14)),
+                caret::recall(trgt_fac,as.factor(c21)),caret::recall(trgt_fac,as.factor(c22)),caret::recall(trgt_fac,as.factor(c23)),caret::recall(trgt_fac,as.factor(c24)),
+                caret::recall(trgt_fac,as.factor(c31)),caret::recall(trgt_fac,as.factor(c32)),caret::recall(trgt_fac,as.factor(c33)),caret::recall(trgt_fac,as.factor(c34)),
+                caret::recall(trgt_fac,as.factor(c41)),caret::recall(trgt_fac,as.factor(c42)),caret::recall(trgt_fac,as.factor(c43)),caret::recall(trgt_fac,as.factor(c44)),
+                caret::recall(trgt_fac,as.factor(c51)),caret::recall(trgt_fac,as.factor(c52)),caret::recall(trgt_fac,as.factor(c53)),caret::recall(trgt_fac,as.factor(c54)))
+
+
+    f5 <- c(caret::F_meas(trgt_fac, as.factor(c11),beta=5),caret::F_meas(trgt_fac, as.factor(c12),beta=5),caret::F_meas(trgt_fac, as.factor(c13),beta=5),caret::F_meas(trgt_fac, as.factor(c14),beta=5),
+            caret::F_meas(trgt_fac, as.factor(c21),beta=5),caret::F_meas(trgt_fac, as.factor(c22),beta=5),caret::F_meas(trgt_fac, as.factor(c23),beta=5),caret::F_meas(trgt_fac, as.factor(c24),beta=5),
+            caret::F_meas(trgt_fac, as.factor(c31),beta=5),caret::F_meas(trgt_fac, as.factor(c32),beta=5),caret::F_meas(trgt_fac, as.factor(c33),beta=5),caret::F_meas(trgt_fac, as.factor(c34),beta=5),
+            caret::F_meas(trgt_fac, as.factor(c41),beta=5),caret::F_meas(trgt_fac, as.factor(c42),beta=5),caret::F_meas(trgt_fac, as.factor(c43),beta=5),caret::F_meas(trgt_fac, as.factor(c44),beta=5),
+            caret::F_meas(trgt_fac, as.factor(c51),beta=5),caret::F_meas(trgt_fac, as.factor(c52),beta=5),caret::F_meas(trgt_fac, as.factor(c53),beta=5),caret::F_meas(trgt_fac, as.factor(c54),beta=5))
+    
+    return(data.frame(dissimilarity_measure, linkage_method, agregation_coef,rand_index,precision,recall,f5))
+}
+
 library(nbconvertR)
 nbconvert(
     "Help_Functions.ipynb",
